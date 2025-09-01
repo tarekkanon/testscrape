@@ -23,35 +23,58 @@ class WETEXSeleniumScraper:
         self.base_url = "https://www.wetex.ae/exhibit"
         self.headless = headless
         self.driver = None
+        self.temp_dir = None
         
     def setup_driver(self):
         """Setup Chrome driver with options optimized for Codespaces"""
+        import tempfile
+        import os
+        
         chrome_options = Options()
         
         if self.headless:
             chrome_options.add_argument('--headless')
             chrome_options.add_argument('--disable-gpu')
         
+        # Create a unique temporary directory for this session
+        temp_dir = tempfile.mkdtemp(prefix='wetex_chrome_')
+        
         # Essential options for Codespaces/Docker environments
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument(f'--user-data-dir={temp_dir}')  # Unique user data directory
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-images')  # Faster loading
         chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--remote-debugging-port=9222')  # Avoid port conflicts
+        chrome_options.add_argument('--disable-software-rasterizer')
+        
+        # Additional options to prevent conflicts
+        chrome_options.add_argument('--incognito')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-translate')
         
         # User agent to appear more like a regular browser
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
         # Performance options
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        prefs = {"profile.managed_default_content_settings.images": 2}  # Disable images
+        prefs = {
+            "profile.managed_default_content_settings.images": 2,
+            "profile.default_content_setting_values.notifications": 2
+        }
         chrome_options.add_experimental_option("prefs", prefs)
+        
+        # Store temp directory for cleanup
+        self.temp_dir = temp_dir
         
         # Initialize driver
         self.driver = webdriver.Chrome(options=chrome_options)
         print("✓ Chrome driver initialized successfully")
+        print(f"  Using temp directory: {temp_dir}")
         
     def wait_for_element(self, by, value, timeout=10):
         """Helper method to wait for elements"""
@@ -222,6 +245,15 @@ class WETEXSeleniumScraper:
             if self.driver:
                 self.driver.quit()
                 print("\n✓ Browser closed")
+            
+            # Clean up temporary directory
+            if hasattr(self, 'temp_dir') and self.temp_dir:
+                import shutil
+                try:
+                    shutil.rmtree(self.temp_dir)
+                    print(f"✓ Cleaned up temp directory: {self.temp_dir}")
+                except:
+                    pass
                 
         return all_exhibitors
     
