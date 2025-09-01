@@ -97,6 +97,14 @@ class WETEXSeleniumScraper:
             if not table:
                 return exhibitors
             
+            # Wait specifically for tbody to have data rows loaded
+            WebDriverWait(self.driver, 15).until(
+                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
+            )
+            
+            # Additional wait to ensure data is fully rendered
+            time.sleep(1)
+            
             # Find all rows in tbody
             tbody = self.driver.find_element(By.ID, "tb_exhibit")
             rows = tbody.find_elements(By.CLASS_NAME, "m19-table__content-table-row")
@@ -147,27 +155,138 @@ class WETEXSeleniumScraper:
             
         return exhibitors
     
+    def get_data_via_javascript(self, page_number: int = 0) -> List[Dict]:
+        """Alternative method: Get data by executing the website's JavaScript directly"""
+        exhibitors = []
+        try:
+            print("  └─ Attempting to fetch data via JavaScript...")
+            
+            # Execute the JavaScript function that the website uses
+            script = f"""
+            var pageNumber = {page_number};
+            var records = 20;
+            var orderBy = 1;
+            var searchBy = 0;
+            var type = 1;
+            var search = '';
+            
+            // Make the AJAX call
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/umbraco/surface/wetexdatasurface/GetExhibitorList?PageNumber=' + pageNumber + 
+                     '&Records=' + records + '&OrderBy=' + orderBy + '&SearchBy=' + searchBy + 
+                     '&type=' + type + '&Search=' + search, false);
+            xhr.send();
+            
+            if (xhr.status === 200) {{
+                // Create a temporary div to parse the response
+                var tempDiv = document.createElement('div');
+                tempDiv.innerHTML = xhr.responseText;
+                
+                // Extract data from the response
+                var rows = tempDiv.querySelectorAll('tr.m19-table__content-table-row');
+                var data = [];
+                
+                rows.forEach(function(row) {{
+                    var cells = row.querySelectorAll('td');
+                    if (cells.length >= 7) {{
+                        data.push({{
+                            'name': cells[1].textContent.trim(),
+                            'stand': cells[2].textContent.trim(),
+                            'country': cells[3].textContent.trim(),
+                            'sector': cells[4].textContent.trim(),
+                            'activity': cells[5].textContent.trim(),
+                            'hall': cells[6].textContent.trim()
+                        }});
+                    }}
+                }});
+                
+                return data;
+            }}
+            return [];
+            """
+            
+            result = self.driver.execute_script(script)
+            
+            if result:
+                for item in result:
+                    exhibitor_data = {
+                        'Exhibitor Name': item.get('name', ''),
+                        'Stand No': item.get('stand', ''),
+                        'Country': item.get('country', ''),
+                        'Sector': item.get('sector', ''),
+                        'Business Activity': item.get('activity', ''),
+                        'Hall': item.get('hall', '')
+                    }
+                    if exhibitor_data['Exhibitor Name']:
+                        exhibitors.append(exhibitor_data)
+                
+                print(f"  └─ Successfully fetched {len(exhibitors)} exhibitors via JavaScript")
+            
+        except Exception as e:
+            print(f"  └─ JavaScript fetch error: {str(e)}")
+        
+        return exhibitors
+        """Debug helper to check table state"""
+        try:
+            # Check if tbody exists
+            tbody = self.driver.find_elements(By.ID, "tb_exhibit")
+            print(f"  └─ tbody found: {len(tbody) > 0}")
+            
+            if tbody:
+                # Check for rows
+                rows = tbody[0].find_elements(By.TAG_NAME, "tr")
+                print(f"  └─ Total tr elements: {len(rows)}")
+                
+                # Check for rows with specific class
+                data_rows = tbody[0].find_elements(By.CLASS_NAME, "m19-table__content-table-row")
+                print(f"  └─ Data rows with class: {len(data_rows)}")
+                
+                # Check first row content if exists
+                if data_rows:
+                    first_row_cells = data_rows[0].find_elements(By.TAG_NAME, "td")
+                    print(f"  └─ First row cells: {len(first_row_cells)}")
+                    if first_row_cells:
+                        print(f"  └─ First cell text: '{first_row_cells[0].text[:50]}...'")
+                
+                # Check innerHTML length
+                inner_html = tbody[0].get_attribute("innerHTML")
+                print(f"  └─ tbody innerHTML length: {len(inner_html)} chars")
+                
+        except Exception as e:
+            print(f"  └─ Debug error: {str(e)}")
+    
     def click_page_number(self, page_num: int) -> bool:
         """Click on a specific page number"""
         try:
-            # Try to find and click the page number
+            # Method 1: Try clicking the page number directly
             page_xpath = f"//li[@data-num='{page_num}' and not(contains(@class, 'pagination-button'))]"
-            page_elem = self.driver.find_element(By.XPATH, page_xpath)
+            page_elements = self.driver.find_elements(By.XPATH, page_xpath)
             
-            # Scroll to element and click
+            if not page_elements:
+                # Method 2: Try using JavaScript to trigger the pagination function
+                print(f"  └─ Using JavaScript to navigate to page {page_num}")
+                self.driver.execute_script(f"SetPageNumber({page_num})")
+                time.sleep(3)  # Wait for AJAX to complete
+                return True
+            
+            # Click the page element if found
+            page_elem = page_elements[0]
             self.driver.execute_script("arguments[0].scrollIntoView(true);", page_elem)
             time.sleep(0.5)
             self.driver.execute_script("arguments[0].click();", page_elem)
             
             # Wait for new data to load
-            time.sleep(2)
+            time.sleep(3)
+            
+            # Wait for tbody to refresh with new data
+            WebDriverWait(self.driver, 10).until(
+                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
+            )
+            
             return True
             
-        except NoSuchElementException:
-            print(f"⚠ Page {page_num} not found in pagination")
-            return False
         except Exception as e:
-            print(f"⚠ Error clicking page {page_num}: {str(e)}")
+            print(f"  └─ Error clicking page {page_num}: {str(e)}")
             return False
     
     def scrape_all_pages(self, max_pages: int = None) -> List[Dict]:
@@ -182,14 +301,42 @@ class WETEXSeleniumScraper:
             print(f"→ Navigating to {self.base_url}")
             self.driver.get(self.base_url)
             
-            # Wait for initial load
-            self.wait_for_element(By.CLASS_NAME, "m19-table__content-table", timeout=15)
-            time.sleep(3)  # Allow full page load
+            # Wait for initial load - wait for the table AND data to be present
+            print("⏳ Waiting for table data to load...")
+            try:
+                # Wait for the table structure
+                self.wait_for_element(By.CLASS_NAME, "m19-table__content-table", timeout=15)
+                
+                # Wait for tbody to exist
+                self.wait_for_element(By.ID, "tb_exhibit", timeout=10)
+                
+                # Wait for actual data rows to be loaded in tbody
+                WebDriverWait(self.driver, 20).until(
+                    lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
+                )
+                
+                # Additional wait for JavaScript to complete
+                time.sleep(3)
+                
+                print("✓ Table data loaded successfully")
+                
+            except TimeoutException:
+                print("⚠ Timeout waiting for table data to load")
+                print("  Attempting to continue anyway...")
             
             # Get total records and calculate pages
             try:
-                total_elem = self.wait_for_element(By.ID, "TotalRecords")
-                total_records = int(total_elem.text) if total_elem else 0
+                # Sometimes the TotalRecords might not be loaded immediately
+                total_elem = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "TotalRecords"))
+                )
+                
+                # Wait for the element to have text
+                WebDriverWait(self.driver, 10).until(
+                    lambda driver: driver.find_element(By.ID, "TotalRecords").text.strip() != ""
+                )
+                
+                total_records = int(total_elem.text) if total_elem.text else 0
                 records_per_page = 20
                 total_pages = (total_records + records_per_page - 1) // records_per_page
                 
@@ -202,7 +349,14 @@ class WETEXSeleniumScraper:
                     
             except Exception as e:
                 print(f"⚠ Could not determine total pages: {str(e)}")
-                total_pages = max_pages or 5  # Default fallback
+                # Try to get from pagination
+                try:
+                    pagination_items = self.driver.find_elements(By.CSS_SELECTOR, "#pagination li[data-num]")
+                    page_numbers = [int(item.get_attribute("data-num")) for item in pagination_items if item.get_attribute("data-num").isdigit()]
+                    total_pages = max(page_numbers) if page_numbers else 5
+                    print(f"📄 Estimated pages from pagination: {total_pages}")
+                except:
+                    total_pages = max_pages or 5  # Default fallback
             
             # Scrape each page
             current_page = 1
@@ -214,9 +368,28 @@ class WETEXSeleniumScraper:
                 # Navigate to page if not the first
                 if current_page > 1:
                     if not self.click_page_number(current_page):
-                        consecutive_failures += 1
-                        current_page += 1
-                        continue
+                        # Try alternative navigation method
+                        print(f"  └─ Trying alternative navigation for page {current_page}")
+                        try:
+                            # Call the JavaScript function directly (page numbers are 0-indexed in the function)
+                            self.driver.execute_script(f"SetPageNumber({current_page - 1})")
+                            time.sleep(3)
+                        except:
+                            consecutive_failures += 1
+                            current_page += 1
+                            continue
+                
+                # Debug table state
+                print("  📋 Checking table state...")
+                self.debug_table_state()
+                
+                # Wait for data to be present
+                try:
+                    WebDriverWait(self.driver, 10).until(
+                        lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
+                    )
+                except TimeoutException:
+                    print("  ⚠ Timeout waiting for data rows")
                 
                 # Scrape current page
                 page_data = self.scrape_current_page()
@@ -227,13 +400,35 @@ class WETEXSeleniumScraper:
                     consecutive_failures = 0
                 else:
                     print(f"  ⚠ No data found on page {current_page}")
-                    consecutive_failures += 1
+                    
+                    # Try scrolling to trigger lazy loading
+                    print("  └─ Attempting to trigger data load by scrolling...")
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(2)
+                    self.driver.execute_script("window.scrollTo(0, 0);")
+                    time.sleep(2)
+                    
+                    # Try again
+                    page_data = self.scrape_current_page()
+                    if page_data:
+                        all_exhibitors.extend(page_data)
+                        print(f"  ✓ Found {len(page_data)} exhibitors after scroll (Total: {len(all_exhibitors)})")
+                        consecutive_failures = 0
+                    else:
+                        # Last resort: try JavaScript method
+                        page_data = self.get_data_via_javascript(current_page - 1)  # 0-indexed
+                        if page_data:
+                            all_exhibitors.extend(page_data)
+                            print(f"  ✓ Found {len(page_data)} exhibitors via JavaScript (Total: {len(all_exhibitors)})")
+                            consecutive_failures = 0
+                        else:
+                            consecutive_failures += 1
                 
                 current_page += 1
                 
                 # Small delay between pages
                 if current_page <= total_pages:
-                    time.sleep(1)
+                    time.sleep(2)
             
             if consecutive_failures >= 3:
                 print("\n⚠ Stopped due to consecutive failures")
