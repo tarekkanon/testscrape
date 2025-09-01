@@ -184,7 +184,7 @@ class WETEXSeleniumScraper:
                         exhibitors.append(exhibitor_data)
                 
                 print(f"  └─ Successfully fetched {len(exhibitors)} exhibitors via JavaScript")
-            else
+            else:
                 print("└─ Error no result back")
             
         except Exception as e:
