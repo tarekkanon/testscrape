@@ -86,74 +86,37 @@ class WETEXSeleniumScraper:
         except TimeoutException:
             print(f"⚠ Timeout waiting for element: {value}")
             return None
-            
-    def scrape_current_page(self) -> List[Dict]:
-        """Scrape exhibitor data from the current page"""
-        exhibitors = []
-        
+    
+    def debug_table_state(self):
+        """Debug helper to check table state"""
         try:
-            # Wait for table to be present
-            table = self.wait_for_element(By.CLASS_NAME, "m19-table__content-table")
-            if not table:
-                return exhibitors
+            # Check if tbody exists
+            tbody = self.driver.find_elements(By.ID, "tb_exhibit")
+            print(f"  └─ tbody found: {len(tbody) > 0}")
             
-            # Wait specifically for tbody to have data rows loaded
-            WebDriverWait(self.driver, 15).until(
-                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
-            )
-            
-            # Additional wait to ensure data is fully rendered
-            time.sleep(1)
-            
-            # Find all rows in tbody
-            tbody = self.driver.find_element(By.ID, "tb_exhibit")
-            rows = tbody.find_elements(By.CLASS_NAME, "m19-table__content-table-row")
-            
-            for row in rows:
-                try:
-                    cells = row.find_elements(By.CLASS_NAME, "m19-table__content-table-cell")
-                    
-                    exhibitor_data = {
-                        'Exhibitor Name': '',
-                        'Stand No': '',
-                        'Country': '',
-                        'Sector': '',
-                        'Business Activity': '',
-                        'Hall': ''
-                    }
-                    
-                    # Extract data from cells
-                    cell_index = 0
-                    for cell in cells:
-                        cell_classes = cell.get_attribute('class') or ''
-                        cell_text = cell.text.strip()
-                        
-                        if 'fixed-col' in cell_classes:
-                            exhibitor_data['Exhibitor Name'] = cell_text
-                        elif 'hidden-col' not in cell_classes:
-                            if cell_index == 0:  # Stand No
-                                exhibitor_data['Stand No'] = cell_text
-                            elif cell_index == 1:  # Country
-                                exhibitor_data['Country'] = cell_text
-                            elif cell_index == 2:  # Sector
-                                exhibitor_data['Sector'] = cell_text
-                            elif cell_index == 3:  # Business Activity
-                                exhibitor_data['Business Activity'] = cell_text
-                            elif cell_index == 4:  # Hall
-                                exhibitor_data['Hall'] = cell_text
-                            cell_index += 1
-                    
-                    if exhibitor_data['Exhibitor Name']:
-                        exhibitors.append(exhibitor_data)
-                        
-                except Exception as e:
-                    print(f"⚠ Error processing row: {str(e)}")
-                    continue
-                    
+            if tbody:
+                # Check for rows
+                rows = tbody[0].find_elements(By.TAG_NAME, "tr")
+                print(f"  └─ Total tr elements: {len(rows)}")
+                
+                # Check for rows with specific class
+                data_rows = tbody[0].find_elements(By.CLASS_NAME, "m19-table__content-table-row")
+                print(f"  └─ Data rows with class: {len(data_rows)}")
+                
+                # Check first row content if exists
+                if data_rows:
+                    first_row_cells = data_rows[0].find_elements(By.TAG_NAME, "td")
+                    print(f"  └─ First row cells: {len(first_row_cells)}")
+                    if first_row_cells:
+                        first_cell_text = first_row_cells[0].text[:50] if first_row_cells[0].text else "Empty"
+                        print(f"  └─ First cell text: '{first_cell_text}...'")
+                
+                # Check innerHTML length
+                inner_html = tbody[0].get_attribute("innerHTML")
+                print(f"  └─ tbody innerHTML length: {len(inner_html)} chars")
+                
         except Exception as e:
-            print(f"⚠ Error scraping current page: {str(e)}")
-            
-        return exhibitors
+            print(f"  └─ Debug error: {str(e)}")
     
     def get_data_via_javascript(self, page_number: int = 0) -> List[Dict]:
         """Alternative method: Get data by executing the website's JavaScript directly"""
@@ -226,34 +189,74 @@ class WETEXSeleniumScraper:
             print(f"  └─ JavaScript fetch error: {str(e)}")
         
         return exhibitors
-        """Debug helper to check table state"""
-        try:
-            # Check if tbody exists
-            tbody = self.driver.find_elements(By.ID, "tb_exhibit")
-            print(f"  └─ tbody found: {len(tbody) > 0}")
             
-            if tbody:
-                # Check for rows
-                rows = tbody[0].find_elements(By.TAG_NAME, "tr")
-                print(f"  └─ Total tr elements: {len(rows)}")
-                
-                # Check for rows with specific class
-                data_rows = tbody[0].find_elements(By.CLASS_NAME, "m19-table__content-table-row")
-                print(f"  └─ Data rows with class: {len(data_rows)}")
-                
-                # Check first row content if exists
-                if data_rows:
-                    first_row_cells = data_rows[0].find_elements(By.TAG_NAME, "td")
-                    print(f"  └─ First row cells: {len(first_row_cells)}")
-                    if first_row_cells:
-                        print(f"  └─ First cell text: '{first_row_cells[0].text[:50]}...'")
-                
-                # Check innerHTML length
-                inner_html = tbody[0].get_attribute("innerHTML")
-                print(f"  └─ tbody innerHTML length: {len(inner_html)} chars")
-                
+    def scrape_current_page(self) -> List[Dict]:
+        """Scrape exhibitor data from the current page"""
+        exhibitors = []
+        
+        try:
+            # Wait for table to be present
+            table = self.wait_for_element(By.CLASS_NAME, "m19-table__content-table")
+            if not table:
+                return exhibitors
+            
+            # Wait specifically for tbody to have data rows loaded
+            WebDriverWait(self.driver, 15).until(
+                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
+            )
+            
+            # Additional wait to ensure data is fully rendered
+            time.sleep(1)
+            
+            # Find all rows in tbody
+            tbody = self.driver.find_element(By.ID, "tb_exhibit")
+            rows = tbody.find_elements(By.CLASS_NAME, "m19-table__content-table-row")
+            
+            for row in rows:
+                try:
+                    cells = row.find_elements(By.CLASS_NAME, "m19-table__content-table-cell")
+                    
+                    exhibitor_data = {
+                        'Exhibitor Name': '',
+                        'Stand No': '',
+                        'Country': '',
+                        'Sector': '',
+                        'Business Activity': '',
+                        'Hall': ''
+                    }
+                    
+                    # Extract data from cells
+                    cell_index = 0
+                    for cell in cells:
+                        cell_classes = cell.get_attribute('class') or ''
+                        cell_text = cell.text.strip()
+                        
+                        if 'fixed-col' in cell_classes:
+                            exhibitor_data['Exhibitor Name'] = cell_text
+                        elif 'hidden-col' not in cell_classes:
+                            if cell_index == 0:  # Stand No
+                                exhibitor_data['Stand No'] = cell_text
+                            elif cell_index == 1:  # Country
+                                exhibitor_data['Country'] = cell_text
+                            elif cell_index == 2:  # Sector
+                                exhibitor_data['Sector'] = cell_text
+                            elif cell_index == 3:  # Business Activity
+                                exhibitor_data['Business Activity'] = cell_text
+                            elif cell_index == 4:  # Hall
+                                exhibitor_data['Hall'] = cell_text
+                            cell_index += 1
+                    
+                    if exhibitor_data['Exhibitor Name']:
+                        exhibitors.append(exhibitor_data)
+                        
+                except Exception as e:
+                    print(f"⚠ Error processing row: {str(e)}")
+                    continue
+                    
         except Exception as e:
-            print(f"  └─ Debug error: {str(e)}")
+            print(f"⚠ Error scraping current page: {str(e)}")
+            
+        return exhibitors
     
     def click_page_number(self, page_num: int) -> bool:
         """Click on a specific page number"""
@@ -310,18 +313,13 @@ class WETEXSeleniumScraper:
                 # Wait for tbody to exist
                 self.wait_for_element(By.ID, "tb_exhibit", timeout=10)
                 
-                # Wait for actual data rows to be loaded in tbody
-                WebDriverWait(self.driver, 20).until(
-                    lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "#tb_exhibit tr.m19-table__content-table-row")) > 0
-                )
+                # Additional wait for page to fully load
+                time.sleep(5)
                 
-                # Additional wait for JavaScript to complete
-                time.sleep(3)
-                
-                print("✓ Table data loaded successfully")
+                print("✓ Page loaded successfully")
                 
             except TimeoutException:
-                print("⚠ Timeout waiting for table data to load")
+                print("⚠ Timeout waiting for table to load")
                 print("  Attempting to continue anyway...")
             
             # Get total records and calculate pages
